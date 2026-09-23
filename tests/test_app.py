@@ -1,4 +1,9 @@
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
+
+from fastapi.testclient import TestClient
+
+from src.app import app
 
 
 def test_root_redirects_to_static_index(client):
@@ -66,6 +71,28 @@ def test_duplicate_signup_is_rejected(client):
     assert response.json() == {
         "detail": "Student already signed up for this activity"
     }
+    activity = client.get("/activities").json()[activity_name]
+    assert activity["participants"].count(email) == 1
+
+
+def test_concurrent_duplicate_signup_is_rejected(client):
+    # Arrange
+    activity_name = "Art Club"
+    email = "student@mergington.edu"
+
+    def signup():
+        with TestClient(app) as concurrent_client:
+            return concurrent_client.post(
+                f"/activities/{quote(activity_name)}/signup",
+                params={"email": email},
+            )
+
+    # Act
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = list(executor.map(lambda _: signup(), range(2)))
+
+    # Assert
+    assert sorted(response.status_code for response in responses) == [200, 400]
     activity = client.get("/activities").json()[activity_name]
     assert activity["participants"].count(email) == 1
 
